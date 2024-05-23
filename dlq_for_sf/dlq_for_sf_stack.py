@@ -38,11 +38,6 @@ class DlqForSfStack(Stack):
         )
 
         # Building Step function
-        call_error_lambda = tasks.LambdaInvoke(
-            scope=self,
-            id="Call Error Lambda",
-            lambda_function=error_lambda,
-        )
 
         send_messge_to_dlq = tasks.CallAwsService(
             scope=self,
@@ -56,14 +51,34 @@ class DlqForSfStack(Stack):
             iam_resources=[dl_queue.queue_arn],
         )
 
+        call_lambda_one = tasks.LambdaInvoke(
+            scope=self,
+            id="Call Lambda One",
+            lambda_function=error_lambda,
+        )
+        call_lambda_one.add_retry(
+            max_attempts=None,
+            errors=["States.ALL"],
+        ).add_catch(
+            handler=send_messge_to_dlq,
+            errors=["States.ALL"],
+        )
+
+        call_lambda_two = tasks.LambdaInvoke(
+            scope=self,
+            id="Call Lambda Two",
+            lambda_function=error_lambda,
+        )
+        call_lambda_two.add_retry(
+            max_attempts=None,
+            errors=["States.ALL"],
+        ).add_catch(
+            handler=send_messge_to_dlq,
+            errors=["States.ALL"],
+        )
+
         sf_definition = sfn.DefinitionBody.from_chainable(
-            call_error_lambda.add_retry(
-                max_attempts=None,
-                errors=["States.ALL"],
-            ).add_catch(
-                handler=send_messge_to_dlq,
-                errors=["States.ALL"],
-            )
+            call_lambda_one.next(call_lambda_two)
         )
 
         message_processor_state_machine = sfn.StateMachine(
